@@ -1,9 +1,9 @@
 Channel
-  .value("BHAM-COVID19-20415-165")
+  .value("BHAM-COVID19-20415-186")
   .set {library_ch}
 
 Channel
-  .from(1..2)
+  .from(20..29)
   .set {barcode_ch}
 
 metadata = '/data/nick_home/metadata.tsv'
@@ -64,7 +64,8 @@ process minion {
   input:
     set central_sample_id, barcode, "artic-primers", "artic-protocol", run_name, library_name, fastq_file from gplex_out_ch
   output:
-    set central_sample_id, barcode, "artic-primers", "artic-protocol", run_name, library_name, file("*.consensus.fasta") into minion_out_ch
+    set central_sample_id, barcode, "artic-primers", "artic-protocol", run_name, library_name, file("*.consensus.fasta") into alignment_in_ch
+    set central_sample_id, barcode, "artic-primers", "artic-protocol", run_name, library_name, file("*.consensus.fasta") into pangolin_in_ch
 
   """
   artic minion --normalise 200 --threads 16 --scheme-directory $HOME/projects/panther_ext_quality/dataset/primer-schemes --read-file ${fastq_file} --fast5-directory /cephfs/grid/bham/${library_name}/${library_name}/*/fast5_pass/barcode${barcode}// --sequencing-summary /cephfs/grid/bham/${library_name}/${library_name}/*/sequencing_summary* nCoV-2019/V3 ${library_name}_barcode${barcode}_out
@@ -74,23 +75,38 @@ process minion {
 process alignment {
   conda '/data/homes/samw/miniconda3/envs/mafft_env/'
   input:
-    set central_sample_id, barcode, "artic-primers", "artic-protocol", run_name, library_name, fasta_file from minion_out_ch
+    set central_sample_id, barcode, "artic-primers", "artic-protocol", run_name, library_name, fasta_file from alignment_in_ch
   output:
-    set central_sample_id, barcode, "artic-primers", "artic-protocol", run_name, library_name, file("*.aln") into aln_out_ch
+    set central_sample_id, barcode, "artic-primers", "artic-protocol", run_name, library_name, file("${library_name}_barcode${barcode}_msa") into msa_out_ch
 
   """
   cat ${reference} ${fasta_file} > to_align.fasta
-  mafft --clustalout --auto to_align.fasta > ${library_name}_barcode${barcode}.aln
+  mafft --auto to_align.fasta > ${library_name}_barcode${barcode}_msa
   """
 }
 
 process variant_call {
+    publishDir '/data/homes/samw/projects/variant_and_lineage/outputs', mode: "copy", overwrite: true
+    errorStrategy 'ignore'
   input:
-    set central_sample_id, barcode, "artic-primers", "artic-protocol", run_name, library_name, aln_file from aln_out_ch
+    set central_sample_id, barcode, "artic-primers", "artic-protocol", run_name, library_name, msa_file from msa_out_ch
   output:
-    set central_sample_id, barcode, "artic-primers", "artic-protocol", run_name, library_name into variant_out_ch
+    set central_sample_id, barcode, "artic-primers", "artic-protocol", run_name, library_name, file("${library_name}_barcode${barcode}_type_summary.csv") into variant_out_ch
 
   """
-  aln2type ./ ./ ${library_name}_barcode${barcode}_type_summary.csv MN908947.3 ${aln_file} /data/homes/samw/aln2type/variant_definitions/variant_yaml/*yml 
+  aln2type ./ ./ ${library_name}_barcode${barcode}_type_summary.csv MN908947.3 ${msa_file} /data/homes/samw/aln2type/variant_definitions/variant_yaml/*yml 
+  """
+}
+
+process pango_lineage {
+  publishDir '/data/homes/samw/projects/variant_and_lineage/outputs', mode: "copy", overwrite: true
+  conda '/data/homes/samw/miniconda3/envs/pangolin/'
+  input:
+    set central_sample_id, barcode, "artic-primers", "artic-protocol", run_name, library_name, fasta_file from pangolin_in_ch
+  output:
+    file("*.csv") into lineage_out_ch
+
+  """
+  pangolin ${fasta_file} > ${library_name}_barcode${barcode}_lineage.csv
   """
 }
