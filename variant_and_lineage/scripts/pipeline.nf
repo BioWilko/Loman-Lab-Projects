@@ -3,7 +3,7 @@ Channel
   .set {library_ch}
 
 Channel
-  .from(20..29)
+  .from(1..37)
   .set {barcode_ch}
 
 metadata = '/data/nick_home/metadata.tsv'
@@ -12,7 +12,7 @@ reference = '/data/homes/samw/projects/variant_and_lineage/MN908947.3.fasta'
 
 process extract_metadata {
   input:
-    set lib from library_ch
+    val lib from library_ch
     val barcode_list from barcode_ch
   output:
     file "metadata.csv" into metadata_csv
@@ -49,6 +49,8 @@ metadata_csv
 
 process guppyplex {
   conda '/data/homes/samw/miniconda3/envs/artic/'
+  errorStrategy 'ignore'
+
   input:
     set central_sample_id, barcode, "artic-primers", "artic-protocol", run_name, library_name from gplex_data_ch
   output:
@@ -91,7 +93,7 @@ process variant_call {
   input:
     set central_sample_id, barcode, "artic-primers", "artic-protocol", run_name, library_name, msa_file from msa_out_ch
   output:
-    set central_sample_id, barcode, "artic-primers", "artic-protocol", run_name, library_name, file("${library_name}_barcode${barcode}_type_summary.csv") into variant_out_ch
+    file("${library_name}_barcode${barcode}_type_summary.csv") into variant_out_ch
 
   """
   aln2type ./ ./ ${library_name}_barcode${barcode}_type_summary.csv MN908947.3 ${msa_file} /data/homes/samw/aln2type/variant_definitions/variant_yaml/*yml 
@@ -104,9 +106,10 @@ process pango_lineage {
   input:
     set central_sample_id, barcode, "artic-primers", "artic-protocol", run_name, library_name, fasta_file from pangolin_in_ch
   output:
-    file("*.csv") into lineage_out_ch
+    file("${library_name}_barcode${barcode}_lineage.csv") into lineage_out_ch
 
   """
-  pangolin ${fasta_file} > ${library_name}_barcode${barcode}_lineage.csv
+  pangolin ${fasta_file}
+  mv lineage_report.csv ${library_name}_barcode${barcode}_lineage.csv
   """
 }
