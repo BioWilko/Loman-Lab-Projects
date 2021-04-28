@@ -1,106 +1,130 @@
 Channel
-  .value("BHAM-COVID19-20415-163-164")
+  .value("BHAM-COVID19-20415_100_103_prom")
   .set { prom_lib_ch }
 
 Channel
-  .value("BHAM-COVID19-20415-163")
-  .set { grid_163_lib_ch }
+  .value("BHAM-COVID19-20415-100")
+  .set { grid_1_lib_ch }
 
 Channel
-  .value("BHAM-COVID19-20415-164")
-  .set { grid_164_lib_ch }
+  .value("BHAM-COVID19-20415-103")
+  .set { grid_2_lib_ch }
 
 Channel
-  .of('01', '02', '03', '04', '05', '06', '07', '08', '09', 10..15, 17..45, 49..91)
+  .value("~/projects/prom-vs-grid/100-103-barcoder_out")
+  .set { prom_dir_ch }
+
+Channel
+  .value("~/projects/prom-vs-grid/100_fastq_combined")
+  .set { grid_1_dir_ch }
+
+Channel
+  .value("~/projects/prom-vs-grid/103_fastq_combined")
+  .set { grid_2_dir_ch }
+
+Channel
+  .of('01', '02', '03', '04', '05', '06', '07', '08', '09', 10..96)
   .set { prom_barcode_ch }
 
 Channel
-  .of('01', '02', '03', '04', '05', '06', '07', '08', '09', 10..15, 17..45)
-  .set { grid_163_barcode_ch }
+  .of('01', '02', '03', '04', '05', '06', '07', '08', '09', 10..48)
+  .set { grid_1_barcode_ch }
 
 Channel
-  .of(49..91)
-  .set { grid_164_barcode_ch }
+  .of(49..96)
+  .set { grid_2_barcode_ch }
 
 reference = '/data/homes/samw/projects/variant_and_lineage/MN908947.3.fasta'
 
 process guppyplex_prom {
+  errorStrategy 'ignore'
   conda '/data/homes/samw/miniconda3/envs/artic/'
 
   input:
     val barcode from prom_barcode_ch
     val library from prom_lib_ch
+    val dir from prom_dir_ch
   output:
-    set barcode, library, file("prom_${barcode}_.fastq") into prom_gplex_out_ch
+    set dir, barcode, library, file("prom_${barcode}_.fastq") into prom_gplex_out_ch
 
   """
-  artic guppyplex --skip-quality-check --min-length 400 --max-length 700 --directory ~/projects/prom-vs-grid/163-4_basecaller_out/barcode${barcode}/ --prefix prom_${barcode}
+  artic guppyplex --skip-quality-check --min-length 400 --max-length 700 --directory ${dir}/barcode${barcode}/ --prefix prom_${barcode}
   """
 }
 
 process minion_prom {
+  errorStrategy 'ignore'
   conda '/data/homes/samw/miniconda3/envs/artic/'
+
   input:
-    set barcode, library, fastq_file from prom_gplex_out_ch
+    set dir, barcode, library, fastq_file from prom_gplex_out_ch
   output:
     set barcode, library, file("multiqc_data/multiqc_data.json") into prom_multiqc_out_ch
 
   """
-  artic minion --strict --normalise 200 --threads 4 --scheme-directory $HOME/projects/panther_ext_quality/dataset/primer-schemes --read-file ${fastq_file} --fast5-directory /data/BHAM-COVID19-20415-163-164/*/*/fast5_pass/ --sequencing-summary /data/BHAM-COVID19-20415-163-164/*/*/sequencing_summary* nCoV-2019/V3 prom_${barcode}_out
+  artic minion --strict --normalise 200 --threads 4 --read-file ${fastq_file} --scheme-directory $HOME --fast5-directory /cephfs/grid/bham/${library}/*/*/fast5_pass/ --sequencing-summary /cephfs/grid/bham/${library}/*/*/sequencing_summary* nCoV-2019/V3 prom_${barcode}_out
   multiqc .
   """
 }
 
-process guppyplex_163 {
+process guppyplex_grid_1 {
+  errorStrategy 'ignore'
   conda '/data/homes/samw/miniconda3/envs/artic/'
 
   input:
-    val barcode from grid_163_barcode_ch
-    val library from grid_163_lib_ch
+    val barcode from grid_1_barcode_ch
+    val library from grid_1_lib_ch
+    val dir from grid_1_dir_ch
   output:
-    set barcode, library, file("163_${barcode}_.fastq") into grid_163_gplex_out_ch
+    set barcode, library, file("grid_${barcode}_.fastq") into grid_1_gplex_out_ch
 
   """
-  artic guppyplex --skip-quality-check --min-length 400 --max-length 700 --directory /cephfs/grid/bham/${library}/*/*/fastq_pass/barcode${barcode}/ --prefix 163_${barcode}
+  artic guppyplex --skip-quality-check --min-length 400 --max-length 700 --directory ${dir}/barcode${barcode}/ --prefix grid_${barcode}
   """
 }
 
-process minion_163 {
+process minion_grid_1 {
+  errorStrategy 'ignore'
   conda '/data/homes/samw/miniconda3/envs/artic/'
+
   input:
-    set barcode, library, fastq_file from grid_163_gplex_out_ch
+    set barcode, library, fastq_file from grid_1_gplex_out_ch
   output:
-    set barcode, library, file("multiqc_data/multiqc_data.json") into grid_163_multiqc_out_ch
+    set barcode, library, file("multiqc_data/multiqc_data.json") into grid_1_multiqc_out_ch
 
   """
-  artic minion --strict --normalise 200 --threads 4 --scheme-directory $HOME/projects/panther_ext_quality/dataset/primer-schemes --read-file ${fastq_file} --fast5-directory /cephfs/grid/bham/${library}/*/*/fast5_pass/barcode${barcode}/ --sequencing-summary /cephfs/grid/bham/${library}/*/*/sequencing_summary* nCoV-2019/V3 163_${barcode}_out
+  artic minion --strict --normalise 200 --threads 4 --read-file ${fastq_file} --scheme-directory $HOME --fast5-directory ~/projects/prom-vs-grid/100-103_fast5/barcode${barcode} --sequencing-summary ~/projects/prom-vs-grid/100_seq_summary.txt nCoV-2019/V3 grid_${barcode}_out
   multiqc .
   """
 }
 
-process guppyplex_164 {
+process guppyplex_grid_2 {
+  errorStrategy 'ignore'
   conda '/data/homes/samw/miniconda3/envs/artic/'
 
   input:
-    val barcode from grid_164_barcode_ch
-    val library from grid_164_lib_ch
+    val barcode from grid_2_barcode_ch
+    val library from grid_2_lib_ch
+    val dir from grid_2_dir_ch
   output:
-    set barcode, library, file("164_${barcode}_.fastq") into grid_164_gplex_out_ch
+    set barcode, library, file("grid_${barcode}_.fastq") into grid_2_gplex_out_ch
 
   """
-  artic guppyplex --skip-quality-check --min-length 400 --max-length 700 --directory /cephfs/grid/bham/${library}/*/*/fastq_pass/barcode${barcode}/ --prefix 164_${barcode}
+  artic guppyplex --skip-quality-check --min-length 400 --max-length 700 --directory ${dir}/barcode${barcode}/ --prefix grid_${barcode}
   """
 }
 
-process minion_164 {
+process minion_grid_2 {
+  errorStrategy 'ignore'
   conda '/data/homes/samw/miniconda3/envs/artic/'
+  
   input:
-    set barcode, library, fastq_file from grid_164_gplex_out_ch
+    set barcode, library, fastq_file from grid_2_gplex_out_ch
   output:
-    set barcode, library, file("multiqc_data/multiqc_data.json") into grid_164_multiqc_out_ch
+    set barcode, library, file("multiqc_data/multiqc_data.json") into grid_2_multiqc_out_ch
 
   """
-  artic minion --strict --normalise 200 --threads 4 --scheme-directory $HOME/projects/panther_ext_quality/dataset/primer-schemes --read-file ${fastq_file} --fast5-directory /cephfs/grid/bham/${library}/*/*/fast5_pass/barcode${barcode}/ --sequencing-summary /cephfs/grid/bham/${library}/*/*/sequencing_summary* nCoV-2019/V3 164_${barcode}_out
+  artic minion --strict --normalise 200 --threads 4 --read-file ${fastq_file} --scheme-directory $HOME/ --fast5-directory ~/projects/prom-vs-grid/100-103_fast5/barcode${barcode} --sequencing-summary ~/projects/prom-vs-grid/103_seq_summary.txt nCoV-2019/V3 grid_${barcode}
   multiqc .
   """
 }
@@ -124,11 +148,11 @@ process prom_json_to_csv {
   """
 }
 
-process grid_163_json_to_csv {
+process grid_1_json_to_csv {
   input:
-    set barcode, library, json from grid_163_multiqc_out_ch
+    set barcode, library, json from grid_1_multiqc_out_ch
   output:
-    file "grid_${barcode}.csv" into grid_163_coverage_ch
+    file "grid_${barcode}.csv" into grid_1_coverage_ch
 
   """
   #!/usr/bin/env python
@@ -143,11 +167,11 @@ process grid_163_json_to_csv {
   """
 }
 
-process grid_164_json_to_csv {
+process grid_2_json_to_csv {
   input:
-    set barcode, library, json from grid_164_multiqc_out_ch
+    set barcode, library, json from grid_2_multiqc_out_ch
   output:
-    file "grid_${barcode}.csv" into grid_164_coverage_ch
+    file "grid_${barcode}.csv" into grid_2_coverage_ch
 
   """
   #!/usr/bin/env python
@@ -165,16 +189,16 @@ process grid_164_json_to_csv {
 process combine {
   publishDir 'nextflow_out/', mode: 'copy', overwrite: true
   input:
-    file grid_163_csv_list from grid_163_coverage_ch.toList()
-    file grid_164_csv_list from grid_164_coverage_ch.toList()
+    file grid_1_csv_list from grid_1_coverage_ch.toList()
+    file grid_2_csv_list from grid_2_coverage_ch.toList()
     file prom_csv_list from prom_coverage_ch.toList()
   output:
-    file "163-4_combined.tsv" into out_ch
+    file "grid-prom_combined.tsv" into out_ch
 
   """
-  echo "" > 163-4_combined.tsv
-  seq 1 98 >> 163-4_combined.tsv
+  echo "" > grid-prom_combined.tsv
+  seq 1 98 >> grid-prom_combined.tsv
 
-  for filename in "${grid_163_csv_list} ${grid_164_csv_list} ${prom_csv_list}"; do paste 163-4_combined.tsv \$filename > tmpout && mv tmpout 163-4_combined.tsv; done
+  for filename in "${grid_1_csv_list} ${grid_2_csv_list} ${prom_csv_list}"; do paste grid-prom_combined.tsv \$filename > tmpout && mv tmpout grid-prom_combined.tsv; done
   """
 }
