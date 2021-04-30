@@ -141,7 +141,7 @@ process alignment {
 }
 
 process variant_call {
-  publishDir "${out_dir}", mode: "copy", overwrite: true 
+  publishDir out_dir, mode: "copy", overwrite: true 
   errorStrategy 'ignore'
   input:
     set prefix, library, barcode, fastq_dir, fast5_dir, seq_summary, msa_file from aln2type_in_ch
@@ -154,7 +154,7 @@ process variant_call {
 }
 
 process pango_lineage {
-  publishDir '${out_dir}', mode: "copy", overwrite: true
+  publishDir out_dir, mode: "copy", overwrite: true
   conda '/data/homes/samw/miniconda3/envs/pangolin/'
   input:
     set prefix, library, barcode, fastq_dir, fast5_dir, seq_summary, consensus from pangolin_in_ch
@@ -171,7 +171,7 @@ process json_to_csv {
   input:
     set prefix, library, barcode, fastq_dir, fast5_dir, seq_summary, json from multiqc_out_ch
   output:
-    set prefix, library, barcode, fastq_dir, fast5_dir, seq_summary, file("${prefix}_${barcode}.csv") into coverage_ch
+    file("${prefix}_${barcode}.csv") into coverage_ch
 
   """
   #!/usr/bin/env python
