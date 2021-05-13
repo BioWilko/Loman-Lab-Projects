@@ -1,12 +1,45 @@
-data_dir = "/data/nick_home/"
-metadata = "/data/nick_home/updated_metadata_heartlands.tsv"
+def printHelp() {
+  log.info"""
+  Mandatory arguments:
+    --location          Set location code ["Heartlands", "QE", "UHCW", "Shrewsbury"]
+    --start_date        Set start date for report in format YYYY-MM-DD
+    --end_date          Set start end date for report in format YYYY-MM-DD
+
+  Optional arguments: (Ensure trailing / is included for all paths set this way)
+    --report_dir        Optionally set report output directory (default "/data/homes/samw/projects/cog_reporting/reports/")
+    --data_dir          Optionally set directory containing ARTIC pipeline out (default "/data/nick_home/")
+    --metadata_path     Optionally set path to metadata file (default "/data/nick_home/updated_metadata_heartlands.tsv")
+"""
+}
+
+if (params.help){
+    printHelp()
+    exit 0
+}
+
+if (params.report_dir){
+  out_dir = params.report_dir
+} else {
+    out_dir = '/data/homes/samw/projects/cog_reporting/reports/'
+}
+
+if (params.data_dir){
+  data_dir = params.data_dir
+} else {
+  data_dir = "/data/nick_home/"
+}
+
+if (params.metadata_path){
+  metadata_path = params.metadata_path
+} else {
+    metadata_path = "/data/nick_home/updated_metadata_heartlands.tsv"
+}
+
 aln2type_headers = "/data/homes/samw/projects/cog_reporting/aln2type_headers.csv"
 
-out_dir = '/data/homes/samw/projects/cog_reporting/reports/'
-
-originating_lab = "QE"
-start_date = "2020-01-01"
-end_date = "2021-05-12"
+originating_lab = params.location
+start_date = params.start_date
+end_date = params.end_date
 
 process generate_ids {
   output:
@@ -20,7 +53,7 @@ process generate_ids {
   start_date = "${start_date}"
   end_date = "${end_date}"
 
-  df = pd.read_csv("${metadata}", sep='\t', keep_default_na=False)
+  df = pd.read_csv("${metadata_path}", sep='\t', keep_default_na=False)
   
   df["collection_date"] = pd.to_datetime(df["collection_date"], errors="coerce")
 
@@ -40,6 +73,7 @@ process filter {
     file ids from id_file_ch
   output:
     file("filtered.csv") into filtered_ch
+    file("fails.csv") into fails_ch
 
   """
   #!/usr/bin/env python
@@ -51,33 +85,51 @@ process filter {
   lines = ids.readlines()
 
   exists = []
+  not_exist = []
 
   for line in lines:
     id = line.strip()
-    if os.path.isfile("/data/nick_home/" + id + ".nanopolish-indel.consensus.fasta"):
+    if os.path.isfile("${data_dir}" + id + ".nanopolish-indel.consensus.fasta"):
       exists.append(id)
+    else:
+      not_exist.append(id)
 
-  df = pd.DataFrame(exists).to_csv("filtered.csv", index=False, header=False)
+  pd.DataFrame(exists).to_csv("filtered.csv", index=False, header=False)
+  pd.DataFrame(not_exist).to_csv("fails.csv", index=False, header=False)
   """
 }
 
 filtered_ch
   .splitText()
   .map{it -> it.trim()}
-  .into {pango_id_ch;aln_id_ch;report_id_ch}
+  .into {pango_id_ch;voc_id_ch;snp_id_ch;report_id_ch}
 
-process aln2type {
-  errorStrategy 'ignore'
+fails_ch
+  .splitText()
+  .map{it -> it.trim()}
+  .set {fails_ch}
+
+process aln2type_voc {
   input:
-    val samp_id from aln_id_ch
+    val samp_id from voc_id_ch
   output:
-    file("${samp_id}_voc.csv") into voc_multi_ch
-    file("${samp_id}_snp.csv") into snp_multi_ch
+    file("${samp_id}_voc.csv") optional true into voc_multi_ch
   
   """
-  awk -F'.' '/^>/{print \$1; next}{print}' < /data/nick_home/${samp_id}.nanopolish-indel.muscle.out.fasta > ${samp_id}.fasta
-  aln2type ./ ./ ${samp_id}_voc.csv MN908947 ${samp_id}.fasta /data/homes/samw/aln2type/variant_definitions/variant_yaml/*.yml
-  aln2type ./ ./ ${samp_id}_snp.csv MN908947 ${samp_id}.fasta /data/homes/samw/aln2type/variant_definitions/SNP_reporting_defs/*.yml
+  awk -F'.' '/^>/{print \$1; next}{print}' < ${data_dir}${samp_id}.nanopolish-indel.muscle.out.fasta > ${samp_id}.fasta
+  aln2type ./ ./ ${samp_id}_voc.csv MN908947 ${samp_id}.fasta --no_call_deletion --output_unclassified /data/homes/samw/aln2type/variant_definitions/variant_yaml/*.yml
+  """
+}
+
+process aln2type_snp {
+  input:
+    val samp_id from snp_id_ch
+  output:
+    file("${samp_id}_snp.csv") optional true into snp_multi_ch
+  
+  """
+  awk -F'.' '/^>/{print \$1; next}{print}' < ${data_dir}${samp_id}.nanopolish-indel.muscle.out.fasta > ${samp_id}.fasta
+  aln2type ./ ./ ${samp_id}_snp.csv MN908947 ${samp_id}.fasta --no_call_deletion /data/homes/samw/aln2type/variant_definitions/SNP_reporting_defs/*.yml
   """
 }
 
@@ -118,7 +170,7 @@ process cat_consensus {
     id_str = samp_ids.join(',')
 
   """
-  cat /data/nick_home/{${id_str}}.nanopolish-indel.consensus.fasta > temp_consensus.fasta
+  cat ${data_dir}{${id_str}}.nanopolish-indel.consensus.fasta > temp_consensus.fasta
   awk -F'.' '/^>/ {print \$1; next}{print}' < temp_consensus.fasta > combined_consensus.fasta
   """
 }
@@ -139,58 +191,69 @@ process parse_basic_info{
   input:
     file lineage_summary from lineage_summary
     val ids from report_id_ch.toList()
+    val fails from fails_ch.toList()
   output:
     file("basic_info.csv") into basic_info_ch
   script:
     id_str = ids.join('","')
+    fails_str = fails.join('","')
 
   """
   #!/usr/bin/env python
   import pandas as pd
 
-  data_path = "/data/nick_home/"
+  data_path = "${data_dir}"
 
   pango_df = pd.read_csv("${lineage_summary}", index_col="taxon")
-  metadata_df = pd.read_csv((data_path + "updated_metadata_heartlands.tsv"), sep="\t")
+  metadata_df = pd.read_csv(("${metadata_path}"), sep="\t")
 
-  samp_ids = ["${id_str}"]
+  samp_ids = ["${id_str}","${fails_str}"]
   report_dict = {}
 
   for id in samp_ids:
-    cov_df = pd.read_csv((data_path + id + ".cov.txt"), index_col="sample", sep="\t")
-    if len(metadata_df.loc[metadata_df["central_sample_id"] == id]) == 1:
-      samp_df = metadata_df.loc[metadata_df["central_sample_id"] == id]
-      report_dict[id] = dict.fromkeys(["COG ID", "Sender ID","Sender Ct Value", "Genome Recovered?", "Coverage (%)", "Lineage", "Incident Code", "Uploaded to COG-UK?", "Uploaded to GISAID?"])
-      report_dict[id]["COG ID"] = id
-      report_dict[id]["Sender ID"] = samp_df["sender_sample_id"].iloc[0].replace(",",".")
-      report_dict[id]["Sample Collection Date"] = samp_df["collection_date"].iloc[0]      
-      report_dict[id]["Genome Recovered?"] = "Y" if cov_df.at[id, "perc"] >= 50 else "N"
-      report_dict[id]["Coverage (%)"] = cov_df.at[id, "perc"]
-      report_dict[id]["Lineage"] = pango_df.at[id, "lineage"]
-      report_dict[id]["Sender Ct Value"] = samp_df["ct_1_ct_value"].iloc[0]
-      report_dict[id]["Incident Code"] = samp_df["collecting_org"].iloc[0]
-      report_dict[id]["Uploaded to COG-UK?"] = "Y" if cov_df.at[id, "perc"] >= 50 else "N"
-      report_dict[id]["Uploaded to GISAID?"] = "Y" if cov_df.at[id, "perc"] >= 90 else "N"
-    else:
-      try:
-        repeat_info = metadata_df.loc[metadata_df["exclude"].isnull()]
-        samp_df = repeat_info.loc[metadata_df["central_sample_id"] == id]
+    try:
+      cov_df = pd.read_csv((data_path + id + ".cov.txt"), index_col="sample", sep="\t")
+      if len(metadata_df.loc[metadata_df["central_sample_id"] == id]) == 1:
+        samp_df = metadata_df.loc[metadata_df["central_sample_id"] == id]
         report_dict[id] = dict.fromkeys(["COG ID", "Sender ID", "Sample Collection Date", "Sender Ct Value", "Genome Recovered?", "Coverage (%)", "Lineage", "Incident Code", "Uploaded to COG-UK?", "Uploaded to GISAID?"])
         report_dict[id]["COG ID"] = id
         report_dict[id]["Sender ID"] = samp_df["sender_sample_id"].iloc[0].replace(",",".")
-        report_dict[id]["Sample Collection Date"] = samp_df["collection_date"].iloc[0]
-        report_dict[id]["Coverage (%)"] = cov_df.at[id, "perc"]
+        report_dict[id]["Sample Collection Date"] = samp_df["collection_date"].iloc[0]      
         report_dict[id]["Genome Recovered?"] = "Y" if cov_df.at[id, "perc"] >= 50 else "N"
-        report_dict[id]["Lineage"] = pango_df.at[id, "lineage"]      
+        report_dict[id]["Coverage (%)"] = cov_df.at[id, "perc"]
+        report_dict[id]["Lineage"] = pango_df.at[id, "lineage"]
         report_dict[id]["Sender Ct Value"] = samp_df["ct_1_ct_value"].iloc[0]
         report_dict[id]["Incident Code"] = samp_df["collecting_org"].iloc[0]
         report_dict[id]["Uploaded to COG-UK?"] = "Y" if cov_df.at[id, "perc"] >= 50 else "N"
         report_dict[id]["Uploaded to GISAID?"] = "Y" if cov_df.at[id, "perc"] >= 90 else "N"
-      except:
-        report_dict[id] = dict.fromkeys(["COG ID", "Sender ID","Sender Ct Value", "Genome Recovered?", "Coverage (%)", "Lineage", "Incident Code", "Uploaded to COG-UK?", "Uploaded to GISAID?"])
-        report_dict[id]["COG ID"] = id
-        report_dict[id]["Genome Recovered?"] = "RPT NOT FOUND"
-        report_dict[id]["Coverage (%)"] = cov_df.at[id, "perc"]
+      else:
+        try:
+          repeat_info = metadata_df.loc[metadata_df["exclude"].isnull()]
+          samp_df = repeat_info.loc[metadata_df["central_sample_id"] == id]
+          report_dict[id] = dict.fromkeys(["COG ID", "Sender ID", "Sample Collection Date", "Sender Ct Value", "Genome Recovered?", "Coverage (%)", "Lineage", "Incident Code", "Uploaded to COG-UK?", "Uploaded to GISAID?"])
+          report_dict[id]["COG ID"] = id
+          report_dict[id]["Sender ID"] = samp_df["sender_sample_id"].iloc[0].replace(",",".")
+          report_dict[id]["Sample Collection Date"] = samp_df["collection_date"].iloc[0]
+          report_dict[id]["Coverage (%)"] = cov_df.at[id, "perc"]
+          report_dict[id]["Genome Recovered?"] = "Y" if cov_df.at[id, "perc"] >= 50 else "N"
+          report_dict[id]["Lineage"] = pango_df.at[id, "lineage"]      
+          report_dict[id]["Sender Ct Value"] = samp_df["ct_1_ct_value"].iloc[0]
+          report_dict[id]["Incident Code"] = samp_df["collecting_org"].iloc[0]
+          report_dict[id]["Uploaded to COG-UK?"] = "Y" if cov_df.at[id, "perc"] >= 50 else "N"
+          report_dict[id]["Uploaded to GISAID?"] = "Y" if cov_df.at[id, "perc"] >= 90 else "N"
+        except:
+          report_dict[id] = dict.fromkeys(["COG ID", "Sender ID","Sample Collection Date", "Sender Ct Value", "Genome Recovered?", "Coverage (%)", "Lineage", "Incident Code", "Uploaded to COG-UK?", "Uploaded to GISAID?"])
+          report_dict[id]["COG ID"] = id
+          report_dict[id]["Genome Recovered?"] = "RPT NOT FOUND"
+          report_dict[id]["Coverage (%)"] = cov_df.at[id, "perc"]
+    except:
+      report_dict[id] = dict.fromkeys(["COG ID", "Sender ID", "Sample Collection Date", "Sender Ct Value", "Genome Recovered?", "Coverage (%)", "Lineage", "Incident Code", "Uploaded to COG-UK?", "Uploaded to GISAID?"])
+      samp_df = metadata_df.loc[metadata_df["central_sample_id"] == id]
+      report_dict[id]["COG ID"] = id
+      report_dict[id]["Genome Recovered?"] = "N"
+      report_dict[id]["Coverage (%)"] = "0"     
+      report_dict[id]["Sample Collection Date"] = samp_df["collection_date"].iloc[0]
+      report_dict[id]["Sender ID"] = samp_df["sender_sample_id"].iloc[0].replace(",",".")   
 
   basic_df = pd.DataFrame.from_dict(report_dict, orient="index").to_csv("basic_info.csv", index=False)
   """
@@ -207,6 +270,7 @@ process parse_VOCs {
   import pandas as pd
 
   df = pd.read_csv("${voc_summary}", usecols=["sample_id", "phe-label", "unique-id", "status"])
+
   df = df[df.status != "low-qc"]
 
   df.rename({"sample_id":"COG ID", "phe-label":"PHE Label", "unique-id":"Unique ID", "status":"Status"}, inplace=True, axis=1)
@@ -248,7 +312,7 @@ process parse_SNPs {
 
 process generate_report {
   conda '/data/homes/samw/miniconda3/envs/xlsxwriter'
-  publishDir out_dir
+  publishDir out_dir, overwrite: true
   input:
     file basic_info from basic_info_ch
     file parsed_snps from parsed_snp_ch
@@ -269,6 +333,7 @@ process generate_report {
   voc_vui_df = vocs_df.join(snps_df, how="outer")
 
   report_df = basic_df.join(voc_vui_df, how="outer")
+  report_df.sort_values("Sample Collection Date", inplace=True)
   dfs = {"Results":report_df}
 
   writer = pd.ExcelWriter("${originating_lab}_${start_date}_${end_date}_report.xlsx", engine='xlsxwriter')
@@ -280,7 +345,7 @@ process generate_report {
           max_len = max((
               series.astype(str).map(len).max(),  # len of largest item
               len(str(series.name))  # len of column name/header
-              )) + 3  # adding a little extra space
+              )) + 2  # adding a little extra space
           worksheet.set_column(idx, idx, max_len)  # set column width
   writer.save()
   """
