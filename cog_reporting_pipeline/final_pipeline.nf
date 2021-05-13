@@ -1,45 +1,57 @@
+import java.text.SimpleDateFormat
+
 def printHelp() {
   log.info"""
   Mandatory arguments:
     --location          Set location code ["Heartlands", "QE", "UHCW", "Shrewsbury"]
+
+  Optional arguments: (Ensure trailing "/" is included for all paths set this way)
     --start_date        Set start date for report in format YYYY-MM-DD
     --end_date          Set start end date for report in format YYYY-MM-DD
-
-  Optional arguments: (Ensure trailing / is included for all paths set this way)
-    --report_dir        Optionally set report output directory (default "/data/homes/samw/projects/cog_reporting/reports/")
-    --data_dir          Optionally set directory containing ARTIC pipeline out (default "/data/nick_home/")
-    --metadata_path     Optionally set path to metadata file (default "/data/nick_home/updated_metadata_heartlands.tsv")
+    --report_dir        Set report output directory (default "/data/homes/samw/projects/cog_reporting/reports/")
+    --data_dir          Set directory containing ARTIC pipeline out (default "/data/nick_home/")
+    --metadata_path     Set path to metadata file (default "/data/nick_home/updated_metadata_heartlands.tsv")
 """
 }
 
+def date = new Date()
+def sdf = new SimpleDateFormat("yyyy-MM-dd")
+end_date = sdf.format(date)
+start_date = "2020-01-01"
+
+out_dir = "/data/homes/samw/projects/cog_reporting/reports/"
+data_dir = "/data/nick_home/"
+metadata_path = "/data/nick_home/updated_metadata_heartlands.tsv"
+
+
 if (params.help){
-    printHelp()
-    exit 0
+  printHelp()
+  exit 0
+}
+
+if (params.start_date){
+  start_date = params.start_date
+}
+
+if (params.end_date){
+  end_date = params.end_date
 }
 
 if (params.report_dir){
   out_dir = params.report_dir
-} else {
-    out_dir = '/data/homes/samw/projects/cog_reporting/reports/'
 }
 
 if (params.data_dir){
   data_dir = params.data_dir
-} else {
-  data_dir = "/data/nick_home/"
 }
 
 if (params.metadata_path){
   metadata_path = params.metadata_path
-} else {
-    metadata_path = "/data/nick_home/updated_metadata_heartlands.tsv"
 }
 
 aln2type_headers = "/data/homes/samw/projects/cog_reporting/aln2type_headers.csv"
 
 originating_lab = params.location
-start_date = params.start_date
-end_date = params.end_date
 
 process generate_ids {
   output:
@@ -272,6 +284,7 @@ process parse_VOCs {
   df = pd.read_csv("${voc_summary}", usecols=["sample_id", "phe-label", "unique-id", "status"])
 
   df = df[df.status != "low-qc"]
+  df = df[df.status != "alt-low-qc"]
 
   df.rename({"sample_id":"COG ID", "phe-label":"PHE Label", "unique-id":"Unique ID", "status":"Status"}, inplace=True, axis=1)
 
