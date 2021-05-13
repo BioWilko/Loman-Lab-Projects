@@ -117,7 +117,7 @@ process aln2type_voc {
   
   """
   awk -F'.' '/^>/{print \$1; next}{print}' < ${data_dir}${samp_id}.nanopolish-indel.muscle.out.fasta > ${samp_id}.fasta
-  aln2type ./ ./ ${samp_id}_voc.csv MN908947 ${samp_id}.fasta --no_call_deletion --output_unclassified /data/homes/samw/aln2type/variant_definitions/variant_yaml/*.yml
+  aln2type ./ ./ ${samp_id}_voc.csv MN908947 ${samp_id}.fasta --no_call_deletion /data/homes/samw/aln2type/variant_definitions/variant_yaml/*.yml
   """
 }
 
