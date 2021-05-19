@@ -8,7 +8,7 @@ def printHelp() {
   Optional arguments: (Ensure trailing "/" is included for all paths set this way)
     --start_date        Set start date for report in format YYYY-MM-DD (default 01-01-2020)
     --end_date          Set start end date for report in format YYYY-MM-DD (defaults to current date)
-    --report_dir        Set report output directory (default "/data/homes/samw/projects/cog_reporting/reports/")
+    --report_dir        Set report output directory (default "/data/homes/samw/reporting/reports/")
     --data_dir          Set directory containing ARTIC pipeline out (default "/data/nick_home/")
     --metadata_path     Set path to metadata file (default "/data/nick_home/updated_metadata_heartlands.tsv")
 """
@@ -19,7 +19,7 @@ def sdf = new SimpleDateFormat("yyyy-MM-dd")
 end_date = sdf.format(date)
 start_date = "2020-01-01"
 
-out_dir = "/data/homes/samw/projects/cog_reporting/reports/"
+out_dir = "/data/homes/samw/reporting/reports/" + end_date + "/"
 data_dir = "/data/nick_home/"
 metadata_path = "/data/nick_home/updated_metadata_heartlands.tsv"
 
@@ -49,7 +49,7 @@ if (params.metadata_path){
   metadata_path = params.metadata_path
 }
 
-aln2type_headers = "/data/homes/samw/projects/cog_reporting/aln2type_headers.csv"
+aln2type_headers = "/data/homes/samw/reporting/aln2type_headers.csv"
 
 originating_lab = params.location
 
@@ -155,7 +155,7 @@ process aln2type_voc {
   
   """
   awk -F'.' '/^>/{print \$1; next}{print}' < ${data_dir}${samp_id}.nanopolish-indel.muscle.out.fasta > ${samp_id}.fasta
-  aln2type ./ ./ ${samp_id}_voc.csv MN908947 ${samp_id}.fasta --no_call_deletion /data/homes/samw/aln2type/variant_definitions/variant_yaml/*.yml
+  aln2type ./ ./ ${samp_id}_voc.csv MN908947 ${samp_id}.fasta --no_call_deletion /data/homes/samw/reporting/variant_definitions/variant_yaml/*.yml
   """
 }
 
@@ -167,7 +167,7 @@ process aln2type_snp {
   
   """
   awk -F'.' '/^>/{print \$1; next}{print}' < ${data_dir}${samp_id}.nanopolish-indel.muscle.out.fasta > ${samp_id}.fasta
-  aln2type ./ ./ ${samp_id}_snp.csv MN908947 ${samp_id}.fasta --no_call_deletion --output_unclassified /data/homes/samw/aln2type/variant_definitions/SNP_reporting_defs/*.yml
+  aln2type ./ ./ ${samp_id}_snp.csv MN908947 ${samp_id}.fasta --no_call_deletion --output_unclassified /data/homes/samw/reporting/mutation_defs/*.yml
   """
 }
 
@@ -395,7 +395,7 @@ process generate_report {
       for i in mutations:
         report_df.at[index, i] = np.nan
 
-  table_shape = "A1:U" + str(len(report_df))
+  table_shape = "B1:U" + str(len(report_df))
 
   dfs = {"Results":report_df}
 
@@ -429,8 +429,8 @@ process generate_report {
               len(str(series.name))  # len of column name/header
               )) + 2  # adding a little extra space
           worksheet.set_column(idx, idx, max_len)  # set column width
-      worksheet.autofilter(table_shape)
       worksheet.freeze_panes(1, 0)
+      worksheet.autofilter(table_shape)
   writer.save()
   """
 }
