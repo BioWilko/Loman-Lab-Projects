@@ -173,30 +173,44 @@ process aln2type_snp {
 
 process combine_voc_out {
   input:
-    file voc_summaries from voc_multi_ch.toList()
+    val voc_summaries from voc_multi_ch.toList()
   output:
     file("voc_summary.csv") into voc_summary_ch
   script:
     voc_csv_str = voc_summaries.join(',')
-
-  """
-  cat ${aln2type_headers} > voc_summary.csv
-  tail -n +2 -q {${voc_csv_str}} >> voc_summary.csv
-  """
+    list = voc_summaries
+    if (list.size > 1){
+        """
+        cat ${aln2type_headers} > voc_summary.csv
+        tail -n +2 -q {${voc_csv_str}} >> voc_summary.csv
+        """
+    } else {
+        """
+        cat ${aln2type_headers} > voc_summary.csv
+        tail -n +2 -q ${voc_csv_str} >> voc_summary.csv
+        """ 
+    }
 }
 
 process combine_snp_out {
   input:
-    file snp_summaries from snp_multi_ch.toList()
+    val snp_summaries from snp_multi_ch.toList()
   output:
     file("snp_summary.csv") into snp_summary_ch
   script:
     snp_csv_str = snp_summaries.join(',')
-
-  """
-  cat ${aln2type_headers} > snp_summary.csv
-  tail -n +2 -q {${snp_csv_str}} >> snp_summary.csv
-  """
+    list = snp_summaries
+    if (list.size > 1){
+      """
+      cat ${aln2type_headers} > snp_summary.csv
+      tail -n +2 -q {${snp_csv_str}} >> snp_summary.csv
+      """
+    } else {
+      """
+      cat ${aln2type_headers} > snp_summary.csv
+      tail -n +2 -q ${snp_csv_str} >> snp_summary.csv      
+      """
+    }
 }
 
 process cat_consensus {
@@ -246,6 +260,7 @@ process parse_basic_info{
   metadata_df = pd.read_csv(("${metadata_path}"), sep="\t")
 
   samp_ids = ["${id_str}","${fails_str}"]
+  samp_ids = list(filter(None, samp_ids))
   report_dict = {}
 
   for id in samp_ids:
@@ -270,7 +285,7 @@ process parse_basic_info{
         try:
           repeat_info = metadata_df.loc[metadata_df["exclude"].isnull()]
           samp_df = repeat_info.loc[metadata_df["central_sample_id"] == id]
-          report_dict[id] = dict.fromkeys(["COG ID", "Sender ID", "Collector Suborg", "Sample Collection Date", "Sample Received Date", "Sender Ct Value", "Genome Recovered?", "Coverage (%)", "Lineage", "Incident Code", "Uploaded to COG-UK?", "Uploaded to GISAID?"])
+          report_dict[id] = dict.fromkeys(["COG ID", "Sender ID", "Sender Suborg", "Sample Collection Date", "Sample Received Date", "Sender Ct Value", "Genome Recovered?", "Coverage (%)", "Lineage", "Incident Code", "Uploaded to COG-UK?", "Uploaded to GISAID?"])
           report_dict[id]["COG ID"] = id
           report_dict[id]["Sender ID"] = samp_df["sender_sample_id"].iloc[0]
           report_dict[id]["Sender Suborg"] = samp_df["collecting_suborg"].iloc[0]          
@@ -284,7 +299,7 @@ process parse_basic_info{
           report_dict[id]["Uploaded to COG-UK?"] = "Y" if cov_df.at[id, "perc"] >= 50 else "N"
           report_dict[id]["Uploaded to GISAID?"] = "Y" if cov_df.at[id, "perc"] >= 90 else "N"
         except:
-          report_dict[id] = dict.fromkeys(["COG ID", "Sender ID", "Collector Suborg","Sample Collection Date", "Sample Received Date", "Sender Ct Value", "Genome Recovered?", "Coverage (%)", "Lineage", "Incident Code", "Uploaded to COG-UK?", "Uploaded to GISAID?"])
+          report_dict[id] = dict.fromkeys(["COG ID", "Sender ID", "Sender Suborg","Sample Collection Date", "Sample Received Date", "Sender Ct Value", "Genome Recovered?", "Coverage (%)", "Lineage", "Incident Code", "Uploaded to COG-UK?", "Uploaded to GISAID?"])
           report_dict[id]["COG ID"] = id
           report_dict[id]["Genome Recovered?"] = "RPT NOT FOUND"
           report_dict[id]["Coverage (%)"] = cov_df.at[id, "perc"]
@@ -395,7 +410,7 @@ process generate_report {
       for i in mutations:
         report_df.at[index, i] = np.nan
 
-  table_shape = "B1:U" + str(len(report_df))
+  table_shape = "B1:T" + str(len(report_df))
 
   dfs = {"Results":report_df}
 
@@ -407,21 +422,21 @@ process generate_report {
       negative = workbook.add_format({'bg_color':   '#FFC7CE', 'font_color': '#9C0006'})
       positive = workbook.add_format({'bg_color':   '#C6EFCE', 'font_color': '#006100'})
       error = workbook.add_format({'bg_color':      '#FF0000', 'font_color': '#FFFFFF'})
-      worksheet.conditional_format("Q1:Q1048576", {"type":"cell", "criteria":"equal to", "value":'"N"', "format":negative})
-      worksheet.conditional_format("R1:R1048576", {"type":"cell", "criteria":"equal to", "value":'"N"', "format":negative})
-      worksheet.conditional_format("S1:S1048576", {"type":"cell", "criteria":"equal to", "value":'"N"', "format":negative})
-      worksheet.conditional_format("T1:T1048576", {"type":"cell", "criteria":"equal to", "value":'"N"', "format":negative})
-      worksheet.conditional_format("U1:U1048576", {"type":"cell", "criteria":"equal to", "value":'"N"', "format":negative})
-      worksheet.conditional_format("Q1:Q1048576", {"type":"cell", "criteria":"equal to", "value":'"Y"', "format":positive})
-      worksheet.conditional_format("R1:R1048576", {"type":"cell", "criteria":"equal to", "value":'"Y"', "format":positive})
-      worksheet.conditional_format("S1:S1048576", {"type":"cell", "criteria":"equal to", "value":'"Y"', "format":positive})
-      worksheet.conditional_format("T1:T1048576", {"type":"cell", "criteria":"equal to", "value":'"Y"', "format":positive})
-      worksheet.conditional_format("U1:U1048576", {"type":"cell", "criteria":"equal to", "value":'"Y"', "format":positive})
-      worksheet.conditional_format("Q1:Q1048576", {"type":"cell", "criteria":"equal to", "value":'"X"', "format":error})
-      worksheet.conditional_format("R1:R1048576", {"type":"cell", "criteria":"equal to", "value":'"X"', "format":error})
-      worksheet.conditional_format("S1:S1048576", {"type":"cell", "criteria":"equal to", "value":'"X"', "format":error})
-      worksheet.conditional_format("T1:T1048576", {"type":"cell", "criteria":"equal to", "value":'"X"', "format":error})
-      worksheet.conditional_format("U1:U1048576", {"type":"cell", "criteria":"equal to", "value":'"X"', "format":error})
+      worksheet.conditional_format("P1:T1048576", {"type":"cell", "criteria":"equal to", "value":'"N"', "format":negative})
+      # worksheet.conditional_format("R1:R1048576", {"type":"cell", "criteria":"equal to", "value":'"N"', "format":negative})
+      # worksheet.conditional_format("S1:S1048576", {"type":"cell", "criteria":"equal to", "value":'"N"', "format":negative})
+      # worksheet.conditional_format("T1:T1048576", {"type":"cell", "criteria":"equal to", "value":'"N"', "format":negative})
+      # worksheet.conditional_format("U1:U1048576", {"type":"cell", "criteria":"equal to", "value":'"N"', "format":negative})
+      worksheet.conditional_format("P1:T1048576", {"type":"cell", "criteria":"equal to", "value":'"Y"', "format":positive})
+      # worksheet.conditional_format("R1:R1048576", {"type":"cell", "criteria":"equal to", "value":'"Y"', "format":positive})
+      # worksheet.conditional_format("S1:S1048576", {"type":"cell", "criteria":"equal to", "value":'"Y"', "format":positive})
+      # worksheet.conditional_format("T1:T1048576", {"type":"cell", "criteria":"equal to", "value":'"Y"', "format":positive})
+      # worksheet.conditional_format("U1:U1048576", {"type":"cell", "criteria":"equal to", "value":'"Y"', "format":positive})
+      worksheet.conditional_format("P1:T1048576", {"type":"cell", "criteria":"equal to", "value":'"X"', "format":error})
+      # worksheet.conditional_format("R1:R1048576", {"type":"cell", "criteria":"equal to", "value":'"X"', "format":error})
+      # worksheet.conditional_format("S1:S1048576", {"type":"cell", "criteria":"equal to", "value":'"X"', "format":error})
+      # worksheet.conditional_format("T1:T1048576", {"type":"cell", "criteria":"equal to", "value":'"X"', "format":error})
+      # worksheet.conditional_format("U1:U1048576", {"type":"cell", "criteria":"equal to", "value":'"X"', "format":error})
       for idx, col in enumerate(df):  # loop through all columns
           series = df[col]
           max_len = max((
